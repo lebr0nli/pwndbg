@@ -1,9 +1,10 @@
 import gdb
 
 import pwndbg
-import pwndbg.heap
-import pwndbg.gdblib.symbol
 import pwndbg.gdblib.memory
+import pwndbg.gdblib.proc
+import pwndbg.gdblib.symbol
+import pwndbg.heap
 import tests
 
 HEAP_MALLOC_CHUNK = tests.binaries.get("heap_malloc_chunk.out")
@@ -187,7 +188,7 @@ def test_global_max_fast_heuristic(start_binary):
     gdb.execute("continue")
 
     global_max_fast = pwndbg.heap.current.global_max_fast
-    if pwndbg.gdblib.ptrsize == 4:
+    if pwndbg.gdblib.proc.ptrsize == 4:
         assert global_max_fast == 0x40
     else:
         assert global_max_fast == 0x80
