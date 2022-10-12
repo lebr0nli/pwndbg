@@ -217,6 +217,23 @@ def address(symbol: str) -> int:
             raise e
 
     try:
+        result = gdb.execute("info address %s" % symbol, to_string=True, from_tty=False)
+        address = int(re.search("0x[0-9a-fA-F]+", result).group(), 0)
+
+        # The address found should lie in one of the memory maps
+        # There are cases when GDB shows offsets e.g.:
+        # pwndbg> info address tcache
+        # Symbol "tcache" is a thread-local variable at offset 0x40
+        # in the thread-local storage for `/lib/x86_64-linux-gnu/libc.so.6'.
+        if pwndbg.vmmap.find(address) is None:
+            return None
+
+        return address
+
+    except gdb.error:
+        return None
+
+    try:
         # TODO: We should properly check if we have a connection to the IDA server first
         address = pwndbg.ida.LocByName(symbol)
         if address:
