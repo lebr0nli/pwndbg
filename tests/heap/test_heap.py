@@ -1,8 +1,8 @@
 import gdb
 
 import pwndbg
-import pwndbg.gdblib.memory
 import pwndbg.gdblib.arch
+import pwndbg.gdblib.memory
 import pwndbg.gdblib.symbol
 import pwndbg.heap
 import tests
@@ -188,6 +188,8 @@ def test_global_max_fast_heuristic(start_binary):
     gdb.execute("continue")
 
     global_max_fast = pwndbg.heap.current.global_max_fast
+    # Check is default value or not
+    # TODO: Is there a better way to check did we really find the correct address?
     if pwndbg.gdblib.arch.ptrsize == 4:
         assert global_max_fast == 0x40
     else:
@@ -202,5 +204,5 @@ def test_thread_arena_heuristic_with_main_arena(start_binary):
     gdb.execute("break break_here")
     gdb.execute("continue")
 
-    # Is there a good way to test `thread_arena` works without `main_arena`?
+    # TODO: Is there a good way to test `thread_arena` works without `main_arena`?
     assert pwndbg.heap.current.thread_arena == pwndbg.heap.current.main_arena.address
