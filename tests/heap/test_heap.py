@@ -187,7 +187,10 @@ def test_global_max_fast_heuristic(start_binary):
     gdb.execute("continue")
 
     global_max_fast = pwndbg.heap.current.global_max_fast
-    assert global_max_fast == 0x80
+    if pwndbg.gdblib.ptrsize == 4:
+        assert global_max_fast == 0x40
+    else:
+        assert global_max_fast == 0x80
 
 
 def test_thread_arena_heuristic_with_main_arena(start_binary):
