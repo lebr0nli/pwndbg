@@ -205,7 +205,7 @@ def test_global_max_fast_heuristic(start_binary):
 
     # Use the heuristic to find the address of `global_max_fast`
     assert pwndbg.heap.current.global_max_fast
-    print("Debug: global_max_fast = ", pwndbg.heap.current.global_max_fast)
+    old_global_max_fast = pwndbg.heap.current.global_max_fast
 
     global_max_fast_addr_via_heuristic = pwndbg.heap.current._global_max_fast_addr
 
@@ -222,7 +222,7 @@ def test_global_max_fast_heuristic(start_binary):
     assert global_max_fast_addr_via_debug_symbol is not None
 
     # Check is two addresses are the same
-    print("Debug: global_max_fast = ", pwndbg.heap.current.global_max_fast)
+    new_global_max_fast = pwndbg.heap.current.global_max_fast
     assert global_max_fast_addr_via_heuristic == global_max_fast_addr_via_debug_symbol
 
 
