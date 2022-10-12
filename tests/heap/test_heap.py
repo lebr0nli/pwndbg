@@ -4,6 +4,8 @@ import pwndbg
 import pwndbg.gdblib.arch
 import pwndbg.gdblib.memory
 import pwndbg.gdblib.symbol
+import pwndbg.gdblib.typeinfo
+import pwndbg.glibc
 import pwndbg.heap
 import tests
 
@@ -87,24 +89,12 @@ def test_malloc_chunk_command(start_binary):
         assert results[name] == expected[name]
 
 
-def check_malloc_chunk_command_heuristic(force_parsing_asm=False):
+def test_malloc_chunk_command_heuristic(start_binary):
+    start_binary(HEAP_MALLOC_CHUNK)
     gdb.execute("set resolve-heap-via-heuristic on")
+    gdb.execute("set debug-file-directory")
     gdb.execute("break break_here")
     gdb.execute("continue")
-    # Force the heap heuristic to parse asm code by messing up the memory
-    if force_parsing_asm:
-        # Get the page we want to mess up
-        page = pwndbg.heap.current.possible_page_of_symbols
-        # Read original memory
-        original_memory = pwndbg.gdblib.memory.read(page.vaddr, page.memsz)
-        # Write garbage
-        pwndbg.gdblib.memory.write(page.vaddr, b"\xff" * page.memsz)
-        # Mess up the memory and then we fetch `main_arena` and `mp_` to avoid heap heuristics find the address of the symbol via parsing the memory
-        # Note: Only `main_arena` and `mp_` will parse the memory
-        assert pwndbg.heap.current.main_arena is not None
-        assert pwndbg.heap.current.mp is not None
-        # Write back the original memory
-        pwndbg.gdblib.memory.write(page.vaddr, original_memory)
 
     chunks = {}
     results = {}
@@ -121,62 +111,125 @@ def check_malloc_chunk_command_heuristic(force_parsing_asm=False):
         assert results[name] == expected[name]
 
 
-def test_malloc_chunk_command_heuristic_level1(start_binary):
-    # TODO: Support other architectures or different libc versions
-    # Level 1: We can get the address of symbols from debug symbols
+class mock_for_heuristic:
+    def __init__(self, mock_symbols=[], mock_all=False, mess_up_memory=False):
+        self.mock_symbols = mock_symbols
+        self.mock_all = mock_all
+        self.saved_address_func = pwndbg.gdblib.symbol.address
+        self.saved_static_linkage_symbol_address_func = (
+            pwndbg.gdblib.symbol.static_linkage_symbol_address
+        )
+        self.mess_up_memory = mess_up_memory
+        if mess_up_memory:
+            self.page = pwndbg.heap.current.possible_page_of_symbols
+            self.saved_memory = pwndbg.gdblib.memory.read(self.page.vaddr, self.page.memsz)
+
+    def __enter__(self):
+        def mock(original):
+            def _mock(symbol, *args, **kwargs):
+                if self.mock_all:
+                    return None
+                for s in self.mock_symbols:
+                    if s == symbol:
+                        return None
+                return original(symbol, *args, **kwargs)
+
+            return _mock
+
+        pwndbg.gdblib.symbol.address = mock(pwndbg.gdblib.symbol.address)
+        pwndbg.gdblib.symbol.static_linkage_symbol_address = mock(
+            pwndbg.gdblib.symbol.static_linkage_symbol_address
+        )
+        if self.mess_up_memory:
+            pwndbg.gdblib.memory.write(self.page.vaddr, b"\xff" * self.page.memsz)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pwndbg.gdblib.symbol.address = self.saved_address_func
+        pwndbg.gdblib.symbol.static_linkage_symbol_address = (
+            self.saved_static_linkage_symbol_address_func
+        )
+        if self.mess_up_memory:
+            pwndbg.gdblib.memory.write(self.page.vaddr, self.saved_memory)
+
+
+def test_main_arena_heuristic(start_binary):
     start_binary(HEAP_MALLOC_CHUNK)
-    # If this works, the structs of heuristics work
-    check_malloc_chunk_command_heuristic()
+    gdb.execute("set resolve-heap-via-heuristic on")
+    gdb.execute("break break_here")
+    gdb.execute("continue")
 
-
-def test_malloc_chunk_command_heuristic_level2_1(start_binary):
-    # TODO: Support other architectures or different libc versions
-    # Level 2.1: We don't have debug symbols, we need to find the address by parsing the assembly code
-    # Note: We allow `main_arena` to be found by the magic about `__malloc_hook`
-    start_binary(HEAP_MALLOC_CHUNK)
-    gdb.execute("set debug-file-directory")
-    # If this works, we successfully parsed the assembly code
-    check_malloc_chunk_command_heuristic(force_parsing_asm=True)
-
-
-def test_malloc_chunk_command_heuristic_level2_2(start_binary):
-    # TODO: Support other architectures or different libc versions
-    # Level 2.2: We don't have debug symbols, we need to find the address by parsing the assembly code
-    # Note: We NOT allow `main_arena` to be found by the magic about `__malloc_hook`
-    start_binary(HEAP_MALLOC_CHUNK)
-
-    def mock_address(original):
-        def _mock_address(symbol, *args, **kwargs):
-            if symbol == "__malloc_hook":
-                return None
-            return original(symbol, *args, **kwargs)
-
-        return _mock_address
-
-    # Mock the address of `__malloc_hook` to None
-    pwndbg.gdblib.symbol.address = mock_address(pwndbg.gdblib.symbol.address)
-    pwndbg.gdblib.symbol.static_linkage_symbol_address = mock_address(
-        pwndbg.gdblib.symbol.static_linkage_symbol_address
+    # Level 1: We check we can get the address of `main_arena` from debug symbols and the struct of `main_arena` is correct
+    assert pwndbg.heap.current.main_arena is not None
+    main_arena_addr_via_debug_symbol = pwndbg.gdblib.symbol.static_linkage_symbol_address(
+        "main_arena"
+    ) or pwndbg.gdblib.symbol.address("main_arena")
+    # Check the address of `main_arena` is correct
+    assert pwndbg.heap.current.main_arena.address == main_arena_addr_via_debug_symbol
+    # Check the struct size is correct
+    assert (
+        pwndbg.heap.current.main_arena.type.sizeof
+        == pwndbg.gdblib.typeinfo.lookup_types("struct malloc_state").sizeof
     )
-    gdb.execute("set debug-file-directory")
-    # If this works, we successfully parsed the assembly code
-    check_malloc_chunk_command_heuristic(force_parsing_asm=True)
+    pwndbg.heap.current = type(pwndbg.heap.current)()  # Reset the heap
+
+    # Level 2.1: We check we can get the address of `main_arena` by parsing the assembly code of `malloc_trim`
+    with mock_for_heuristic(["main_arena"], mess_up_memory=True):
+        assert pwndbg.heap.current.main_arena is not None
+        # Check the address of `main_arena` is correct
+        assert pwndbg.heap.current.main_arena.address == main_arena_addr_via_debug_symbol
+    pwndbg.heap.current = type(pwndbg.heap.current)()  # Reset the heap
+
+    # Level 2.2: No `__malloc_hook` this time, because it's possible to find `main_arena` by some magic about it
+    with mock_for_heuristic(["main_arena", "__malloc_hook"], mess_up_memory=True):
+        assert pwndbg.heap.current.main_arena is not None
+        # Check the address of `main_arena` is correct
+        assert pwndbg.heap.current.main_arena.address == main_arena_addr_via_debug_symbol
+    pwndbg.heap.current = type(pwndbg.heap.current)()  # Reset the heap
+
+    # Level 3: We check we can get the address of `main_arena` by parsing the memory
+    with mock_for_heuristic(mock_all=True):
+        assert pwndbg.heap.current.main_arena is not None
+        # Check the address of `main_arena` is correct
+        assert gdb.execute("info files", to_string=True) is None
+        assert pwndbg.heap.current.main_arena.address == main_arena_addr_via_debug_symbol
 
 
-def test_malloc_chunk_command_heuristic_level3(start_binary):
-    # TODO: Support other architectures or different libc versions
-    # Level 3: We have no symbols from libc, we try to make heap commands work by parsing the memory
+# FIXME: We still have bug for GLIBC >= 2.35 in this heuristic because the size of `malloc_par` is changed
+# So this test will fail for the tests on ubuntu 22.04 probably
+# TODO: Fix the bug and enable this test
+def test_mp_heuristic(start_binary):
     start_binary(HEAP_MALLOC_CHUNK)
-    gdb.execute("set debug-file-directory")
+    gdb.execute("set resolve-heap-via-heuristic on")
+    gdb.execute("break break_here")
+    gdb.execute("continue")
 
-    def mock_address(symbol, *args, **kwargs):
-        return None
+    # Level 1: We check we can get the address of `mp_` from debug symbols and the struct of `mp_` is correct
+    assert pwndbg.heap.current.mp is not None
+    mp_addr_via_debug_symbol = pwndbg.gdblib.symbol.static_linkage_symbol_address(
+        "mp_"
+    ) or pwndbg.gdblib.symbol.address("mp_")
+    # Check the address of `main_arena` is correct
+    assert pwndbg.heap.current.mp.address == mp_addr_via_debug_symbol
+    # Check the struct size is correct
+    assert (
+        pwndbg.heap.current.mp.type.sizeof
+        == pwndbg.gdblib.typeinfo.lookup_types("struct malloc_par").sizeof
+    )
+    pwndbg.heap.current = type(pwndbg.heap.current)()  # Reset the heap
 
-    # Mock address of all symbols to None
-    pwndbg.gdblib.symbol.address = mock_address
-    pwndbg.gdblib.symbol.static_linkage_symbol_address = mock_address
-    # If this works, we successfully parsed the memory.
-    check_malloc_chunk_command_heuristic()
+    # Level 2: We check we can get the address of `mp_` by parsing the assembly code of `__libc_free`
+    with mock_for_heuristic(["mp_"], mess_up_memory=True):
+        assert pwndbg.heap.current.mp is not None
+        # Check the address of `mp_` is correct
+        assert pwndbg.heap.current.mp.address == mp_addr_via_debug_symbol
+    pwndbg.heap.current = type(pwndbg.heap.current)()  # Reset the heap
+
+    # Level 3: We check we can get the address of `mp_` by parsing the memory
+    with mock_for_heuristic(mock_all=True):
+        assert pwndbg.heap.current.mp is not None
+        # Check the address of `mp_` is correct
+        assert gdb.execute("info files", to_string=True) is None
+        assert pwndbg.heap.current.mp.address == mp_addr_via_debug_symbol
 
 
 def test_global_max_fast_heuristic(start_binary):
@@ -186,45 +239,18 @@ def test_global_max_fast_heuristic(start_binary):
     gdb.execute("break break_here")
     gdb.execute("continue")
 
-    def mock_address(original):
-        def _mock_address(symbol, *args, **kwargs):
-            if symbol == "global_max_fast":
-                return None
-            return original(symbol, *args, **kwargs)
-
-        _mock_address.original = original
-        return _mock_address
-
-    # Mock the address of `global_max_fast` to None
-    pwndbg.gdblib.symbol.address = mock_address(pwndbg.gdblib.symbol.address)
-    assert pwndbg.gdblib.symbol.address("global_max_fast") is None
-    pwndbg.gdblib.symbol.static_linkage_symbol_address = mock_address(
-        pwndbg.gdblib.symbol.static_linkage_symbol_address
-    )
-    assert pwndbg.gdblib.symbol.static_linkage_symbol_address("global_max_fast") is None
-
-    # Use the heuristic to find the address of `global_max_fast`
-    assert pwndbg.heap.current.global_max_fast
-    old_global_max_fast = pwndbg.heap.current.global_max_fast
-
-    global_max_fast_addr_via_heuristic = pwndbg.heap.current._global_max_fast_addr
-
-    # Restore the original functions
-    pwndbg.gdblib.symbol.address = pwndbg.gdblib.symbol.address.original
-    pwndbg.gdblib.symbol.static_linkage_symbol_address = (
-        pwndbg.gdblib.symbol.static_linkage_symbol_address.original
-    )
-
     # Use the debug symbol to find the address of `global_max_fast`
     global_max_fast_addr_via_debug_symbol = pwndbg.gdblib.symbol.static_linkage_symbol_address(
         "global_max_fast"
     ) or pwndbg.gdblib.symbol.address("global_max_fast")
     assert global_max_fast_addr_via_debug_symbol is not None
 
-    # Check is two addresses are the same
-    new_global_max_fast = pwndbg.heap.current.global_max_fast
-    debug = gdb.execute("disass _int_malloc", to_string=True)
-    assert global_max_fast_addr_via_heuristic == global_max_fast_addr_via_debug_symbol
+    # Mock the address of `global_max_fast` to None
+    with mock_for_heuristic(["global_max_fast"]):
+        # Use heuristic to find `global_max_fast`
+        assert pwndbg.heap.current.global_max_fast is not None
+        # Check the address of `global_max_fast` is correct
+        assert pwndbg.heap.current._global_max_fast_addr == global_max_fast_addr_via_debug_symbol
 
 
 def test_thread_arena_heuristic(start_binary):
@@ -234,32 +260,6 @@ def test_thread_arena_heuristic(start_binary):
     gdb.execute("break break_here")
     gdb.execute("continue")
 
-    def mock_address(original):
-        def _mock_address(symbol, *args, **kwargs):
-            if symbol == "thread_arena":
-                return None
-            return original(symbol, *args, **kwargs)
-
-        _mock_address.original = original
-        return _mock_address
-
-    # Mock the address of `thread_arena` to None
-    pwndbg.gdblib.symbol.address = mock_address(pwndbg.gdblib.symbol.address)
-    assert pwndbg.gdblib.symbol.address("thread_arena") is None
-    pwndbg.gdblib.symbol.static_linkage_symbol_address = mock_address(
-        pwndbg.gdblib.symbol.static_linkage_symbol_address
-    )
-    assert pwndbg.gdblib.symbol.static_linkage_symbol_address("thread_arena") is None
-
-    # Use heuristic to find the value of `thread_arena`
-    thread_arena_via_heuristic = pwndbg.heap.current.thread_arena
-
-    # Restore the original functions
-    pwndbg.gdblib.symbol.address = pwndbg.gdblib.symbol.address.original
-    pwndbg.gdblib.symbol.static_linkage_symbol_address = (
-        pwndbg.gdblib.symbol.static_linkage_symbol_address.original
-    )
-
     # Use the debug symbol to find the value of `thread_arena`
     thread_arena_via_debug_symbol = pwndbg.gdblib.symbol.static_linkage_symbol_address(
         "thread_arena"
@@ -268,5 +268,8 @@ def test_thread_arena_heuristic(start_binary):
     thread_arena_via_debug_symbol = pwndbg.gdblib.memory.u(thread_arena_via_debug_symbol)
     assert thread_arena_via_debug_symbol > 0
 
-    # Check is two addresses are the same
-    assert thread_arena_via_heuristic == thread_arena_via_debug_symbol
+    # Mock the address of `thread_arena` to None
+    with mock_for_heuristic(["thread_arena"]):
+        assert pwndbg.gdblib.symbol.address("thread_arena") is None
+        # Check the value of `thread_arena` is correct
+        assert pwndbg.heap.current.thread_arena == thread_arena_via_debug_symbol
