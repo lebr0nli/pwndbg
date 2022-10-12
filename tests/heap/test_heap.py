@@ -2,7 +2,7 @@ import gdb
 
 import pwndbg
 import pwndbg.gdblib.memory
-import pwndbg.gdblib.proc
+import pwndbg.gdblib.arch
 import pwndbg.gdblib.symbol
 import pwndbg.heap
 import tests
@@ -188,7 +188,7 @@ def test_global_max_fast_heuristic(start_binary):
     gdb.execute("continue")
 
     global_max_fast = pwndbg.heap.current.global_max_fast
-    if pwndbg.gdblib.proc.ptrsize == 4:
+    if pwndbg.gdblib.arch.ptrsize == 4:
         assert global_max_fast == 0x40
     else:
         assert global_max_fast == 0x80
