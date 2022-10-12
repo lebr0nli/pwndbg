@@ -223,6 +223,7 @@ def test_global_max_fast_heuristic(start_binary):
 
     # Check is two addresses are the same
     new_global_max_fast = pwndbg.heap.current.global_max_fast
+    debug = gdb.execute("disass _int_malloc", to_string=True)
     assert global_max_fast_addr_via_heuristic == global_max_fast_addr_via_debug_symbol
 
 
