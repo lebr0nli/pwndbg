@@ -182,27 +182,88 @@ def test_malloc_chunk_command_heuristic_level3(start_binary):
 def test_global_max_fast_heuristic(start_binary):
     # TODO: Support other architectures or different libc versions
     start_binary(HEAP_MALLOC_CHUNK)
-    gdb.execute("set debug-file-directory")
     gdb.execute("set resolve-heap-via-heuristic on")
     gdb.execute("break break_here")
     gdb.execute("continue")
 
-    global_max_fast = pwndbg.heap.current.global_max_fast
-    # Check is default value or not
-    # TODO: Is there a better way to check did we really find the correct address?
-    if pwndbg.gdblib.arch.ptrsize == 4:
-        assert global_max_fast == 0x40
-    else:
-        assert global_max_fast == 0x80
+    def mock_address(original):
+        def _mock_address(symbol, *args, **kwargs):
+            if symbol == "global_max_fast":
+                return None
+            return original(symbol, *args, **kwargs)
+
+        _mock_address.original = original
+        return _mock_address
+
+    # Mock the address of `global_max_fast` to None
+    pwndbg.gdblib.symbol.address = mock_address(pwndbg.gdblib.symbol.address)
+    assert pwndbg.gdblib.symbol.address("global_max_fast") is None
+    pwndbg.gdblib.symbol.static_linkage_symbol_address = mock_address(
+        pwndbg.gdblib.symbol.static_linkage_symbol_address
+    )
+    assert pwndbg.gdblib.symbol.static_linkage_symbol_address("global_max_fast") is None
+
+    # Use the heuristic to find the address of `global_max_fast`
+    assert pwndbg.heap.current.global_max_fast
+
+    global_max_fast_addr_via_heuristic = pwndbg.heap.current._global_max_fast_addr
+
+    # Restore the original functions
+    pwndbg.gdblib.symbol.address = pwndbg.gdblib.symbol.address.original
+    pwndbg.gdblib.symbol.static_linkage_symbol_address = (
+        pwndbg.gdblib.symbol.static_linkage_symbol_address.original
+    )
+
+    # Use the debug symbol to find the address of `global_max_fast`
+    global_max_fast_addr_via_debug_symbol = pwndbg.gdblib.symbol.static_linkage_symbol_address(
+        "global_max_fast"
+    ) or pwndbg.gdblib.symbol.address("global_max_fast")
+    assert global_max_fast_addr_via_debug_symbol is not None
+
+    # Check is two addresses are the same
+    assert global_max_fast_addr_via_heuristic == global_max_fast_addr_via_debug_symbol
 
 
-def test_thread_arena_heuristic_with_main_arena(start_binary):
+def test_thread_arena_heuristic(start_binary):
     # TODO: Support other architectures or different libc versions
     start_binary(HEAP_MALLOC_CHUNK)
-    gdb.execute("set debug-file-directory")
     gdb.execute("set resolve-heap-via-heuristic on")
     gdb.execute("break break_here")
     gdb.execute("continue")
 
-    # TODO: Is there a good way to test `thread_arena` works without `main_arena`?
-    assert pwndbg.heap.current.thread_arena == pwndbg.heap.current.main_arena.address
+    def mock_address(original):
+        def _mock_address(symbol, *args, **kwargs):
+            if symbol == "thread_arena":
+                return None
+            return original(symbol, *args, **kwargs)
+
+        _mock_address.original = original
+        return _mock_address
+
+    # Mock the address of `thread_arena` to None
+    pwndbg.gdblib.symbol.address = mock_address(pwndbg.gdblib.symbol.address)
+    assert pwndbg.gdblib.symbol.address("thread_arena") is None
+    pwndbg.gdblib.symbol.static_linkage_symbol_address = mock_address(
+        pwndbg.gdblib.symbol.static_linkage_symbol_address
+    )
+    assert pwndbg.gdblib.symbol.static_linkage_symbol_address("thread_arena") is None
+
+    # Use heuristic to find the value of `thread_arena`
+    thread_arena_via_heuristic = pwndbg.heap.current.thread_arena
+
+    # Restore the original functions
+    pwndbg.gdblib.symbol.address = pwndbg.gdblib.symbol.address.original
+    pwndbg.gdblib.symbol.static_linkage_symbol_address = (
+        pwndbg.gdblib.symbol.static_linkage_symbol_address.original
+    )
+
+    # Use the debug symbol to find the value of `thread_arena`
+    thread_arena_via_debug_symbol = pwndbg.gdblib.symbol.static_linkage_symbol_address(
+        "thread_arena"
+    ) or pwndbg.gdblib.symbol.address("thread_arena")
+    assert thread_arena_via_debug_symbol is not None
+    thread_arena_via_debug_symbol = pwndbg.gdblib.memory.u(thread_arena_via_debug_symbol)
+    assert thread_arena_via_debug_symbol > 0
+
+    # Check is two addresses are the same
+    assert thread_arena_via_heuristic == thread_arena_via_debug_symbol
