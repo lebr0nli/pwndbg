@@ -194,6 +194,7 @@ def test_main_arena_heuristic(start_binary):
         debug2 = pwndbg.glibc.get_got_plt_address()
         assert debug1
         assert debug2
+        assert 0
         assert pwndbg.heap.current.possible_page_of_symbols.vaddr
         assert pwndbg.heap.current.main_arena.address == main_arena_addr_via_debug_symbol
 
@@ -236,6 +237,7 @@ def test_mp_heuristic(start_binary):
         debug2 = pwndbg.glibc.get_got_plt_address()
         assert debug1
         assert debug2
+        assert 0
         assert pwndbg.heap.current.possible_page_of_symbols.vaddr
         assert pwndbg.heap.current.mp.address == mp_addr_via_debug_symbol
 
