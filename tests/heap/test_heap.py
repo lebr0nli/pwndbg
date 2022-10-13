@@ -274,14 +274,3 @@ def test_thread_arena_heuristic(start_binary):
         assert pwndbg.gdblib.symbol.address("thread_arena") is None
         # Check the value of `thread_arena` is correct
         assert pwndbg.heap.current.thread_arena == thread_arena_via_debug_symbol
-
-
-def test_heuristic_page(start_binary):
-    start_binary(HEAP_MALLOC_CHUNK)
-    gdb.execute("set resolve-heap-via-heuristic on")
-    gdb.execute("break break_here")
-    gdb.execute("continue")
-
-    debug1 = gdb.execute("info files", to_string=True)
-    debug2 = pwndbg.glibc.get_got_plt_address()
-    assert pwndbg.heap.current.possible_page_of_symbols is not None
