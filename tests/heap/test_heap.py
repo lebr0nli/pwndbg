@@ -190,6 +190,8 @@ def test_main_arena_heuristic(start_binary):
     with mock_for_heuristic(mock_all=True):
         assert pwndbg.heap.current.main_arena is not None
         # Check the address of `main_arena` is correct
+        debug1 = pwndbg.heap.current.possible_page_of_symbols
+        debug2 = pwndbg.glibc.get_got_plt_address()
         assert gdb.execute("info files", to_string=True) is None
         assert pwndbg.heap.current.main_arena.address == main_arena_addr_via_debug_symbol
 
@@ -228,6 +230,8 @@ def test_mp_heuristic(start_binary):
     with mock_for_heuristic(mock_all=True):
         assert pwndbg.heap.current.mp is not None
         # Check the address of `mp_` is correct
+        debug1 = pwndbg.heap.current.possible_page_of_symbols
+        debug2 = pwndbg.glibc.get_got_plt_address()
         assert gdb.execute("info files", to_string=True) is None
         assert pwndbg.heap.current.mp.address == mp_addr_via_debug_symbol
 
