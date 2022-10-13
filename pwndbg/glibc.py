@@ -3,7 +3,7 @@ Get information about the GLibc
 """
 
 import functools
-import re
+import os
 
 import gdb
 
@@ -61,7 +61,7 @@ def get_got_plt_address():
         (
             objfile.filename
             for objfile in gdb.objfiles()
-            if re.search(r"^libc(\.|-.+\.)so", objfile.filename.split("/")[-1])
+            if os.path.basename(objfile.filename) == "libc.so.6"
         ),
         None,
     )

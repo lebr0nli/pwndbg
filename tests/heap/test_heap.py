@@ -189,15 +189,8 @@ def test_main_arena_heuristic(start_binary):
 
     # Level 3: We check we can get the address of `main_arena` by parsing the memory
     with mock_for_heuristic(mock_all=True):
-        # assert pwndbg.heap.current.main_arena is not None
         # Check the address of `main_arena` is correct
-        debug1 = gdb.execute("info files", to_string=True)
-        debug2 = pwndbg.glibc.get_got_plt_address()
-        assert debug1
-        assert debug2
-        assert pwndbg.heap.current.possible_page_of_symbols.vaddr
-        assert 0
-        # assert pwndbg.heap.current.main_arena.address == main_arena_addr_via_debug_symbol
+        assert pwndbg.heap.current.main_arena.address == main_arena_addr_via_debug_symbol
 
 
 # FIXME: We still have bug for GLIBC >= 2.35 in this heuristic because the size of `malloc_par` is changed
@@ -232,21 +225,8 @@ def test_mp_heuristic(start_binary):
 
     # Level 3: We check we can get the address of `mp_` by parsing the memory
     with mock_for_heuristic(mock_all=True):
-        #     assert pwndbg.heap.current.mp is not None
         # Check the address of `mp_` is correct
-        debug1 = gdb.execute("info files", to_string=True)
-        debug2 = pwndbg.glibc.get_got_plt_address()
-        debug3 = [f.filename for f in gdb.objfiles()]
-        debug4 = [
-            objfile.filename
-            for objfile in gdb.objfiles()
-            if re.search(r"^libc(\.|-.+\.)so", objfile.filename.split("/")[-1])
-        ]
-        assert debug1
-        assert debug2
-        assert pwndbg.heap.current.possible_page_of_symbols.vaddr
-        assert 0
-        # assert pwndbg.heap.current.mp.address == mp_addr_via_debug_symbol
+        assert pwndbg.heap.current.mp.address == mp_addr_via_debug_symbol
 
 
 def test_global_max_fast_heuristic(start_binary):
