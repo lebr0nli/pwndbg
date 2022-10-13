@@ -35,17 +35,17 @@ jobs:
     # We use `sudo` for `attachp` command tests
     - name: Run tests
       run: |
-        PWNDBG_GITHUB_ACTIONS_TEST_RUN=1 sudo --preserve-env ./tests.sh
+        PWNDBG_GITHUB_ACTIONS_TEST_RUN=1 sudo --preserve-env ./tests.sh heuristic
 
-    - name: Process coverage data
-      if: matrix.os == 'ubuntu-22.04'
-      run: |
-        coverage combine
-        coverage xml
+    # - name: Process coverage data
+    #   if: matrix.os == 'ubuntu-22.04'
+    #   run: |
+    #     coverage combine
+    #     coverage xml
 
-    - name: "Upload coverage to Codecov"
-      if: matrix.os == 'ubuntu-22.04'
-      uses: codecov/codecov-action@v3
-      with:
-        fail_ci_if_error: true
+    # - name: "Upload coverage to Codecov"
+    #   if: matrix.os == 'ubuntu-22.04'
+    #   uses: codecov/codecov-action@v3
+    #   with:
+    #     fail_ci_if_error: true
 
