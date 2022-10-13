@@ -279,5 +279,5 @@ def test_heuristic_page(start_binary):
     gdb.execute("continue")
 
     debug1 = gdb.execute("info files", to_string=True)
-    debug2 = pwndbg.glibc.get_libc_version()
+    debug2 = pwndbg.glibc.get_got_plt_address()
     assert pwndbg.heap.current.possible_page_of_symbols is not None
