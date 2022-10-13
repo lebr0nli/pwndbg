@@ -7,6 +7,7 @@ import pwndbg.gdblib.symbol
 import pwndbg.gdblib.typeinfo
 import pwndbg.glibc
 import pwndbg.heap
+import re
 import tests
 
 HEAP_MALLOC_CHUNK = tests.binaries.get("heap_malloc_chunk.out")
@@ -231,11 +232,16 @@ def test_mp_heuristic(start_binary):
 
     # Level 3: We check we can get the address of `mp_` by parsing the memory
     with mock_for_heuristic(mock_all=True):
-    #     assert pwndbg.heap.current.mp is not None
+        #     assert pwndbg.heap.current.mp is not None
         # Check the address of `mp_` is correct
         debug1 = gdb.execute("info files", to_string=True)
         debug2 = pwndbg.glibc.get_got_plt_address()
-        debug3 = gdb.objfiles()
+        debug3 = [f.filename for f in gdb.objfiles()]
+        debug4 = [
+            objfile.filename
+            for objfile in gdb.objfiles()
+            if re.search(r"^libc(\.|-.+\.)so", objfile.filename.split("/")[-1])
+        ]
         assert debug1
         assert debug2
         assert pwndbg.heap.current.possible_page_of_symbols.vaddr
@@ -284,6 +290,7 @@ def test_thread_arena_heuristic(start_binary):
         assert pwndbg.gdblib.symbol.address("thread_arena") is None
         # Check the value of `thread_arena` is correct
         assert pwndbg.heap.current.thread_arena == thread_arena_via_debug_symbol
+
 
 def test_heuristic_page(start_binary):
     start_binary(HEAP_MALLOC_CHUNK)
