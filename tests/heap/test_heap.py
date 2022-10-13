@@ -196,7 +196,7 @@ def test_main_arena_heuristic(start_binary):
         assert debug2
         assert 0
         assert pwndbg.heap.current.possible_page_of_symbols.vaddr
-        assert pwndbg.heap.current.main_arena.address == main_arena_addr_via_debug_symbol
+        # assert pwndbg.heap.current.main_arena.address == main_arena_addr_via_debug_symbol
 
 
 # FIXME: We still have bug for GLIBC >= 2.35 in this heuristic because the size of `malloc_par` is changed
@@ -239,7 +239,7 @@ def test_mp_heuristic(start_binary):
         assert debug2
         assert 0
         assert pwndbg.heap.current.possible_page_of_symbols.vaddr
-        assert pwndbg.heap.current.mp.address == mp_addr_via_debug_symbol
+        # assert pwndbg.heap.current.mp.address == mp_addr_via_debug_symbol
 
 
 def test_global_max_fast_heuristic(start_binary):
