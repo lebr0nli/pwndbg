@@ -4,6 +4,7 @@ Get information about the GLibc
 
 import functools
 import os
+import re
 
 import gdb
 
