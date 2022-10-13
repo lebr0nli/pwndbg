@@ -235,6 +235,7 @@ def test_mp_heuristic(start_binary):
         # Check the address of `mp_` is correct
         debug1 = gdb.execute("info files", to_string=True)
         debug2 = pwndbg.glibc.get_got_plt_address()
+        debug3 = gdb.objfiles()
         assert debug1
         assert debug2
         assert pwndbg.heap.current.possible_page_of_symbols.vaddr
