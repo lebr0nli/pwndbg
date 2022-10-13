@@ -194,7 +194,7 @@ def test_main_arena_heuristic(start_binary):
         assert pwndbg.heap.current.main_arena.address == main_arena_addr_via_debug_symbol
 
 
-def test_mp_heuristic(start_binary)
+def test_mp_heuristic(start_binary):
     start_binary(HEAP_MALLOC_CHUNK)
     gdb.execute("set resolve-heap-via-heuristic on")
     gdb.execute("break break_here")
