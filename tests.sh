@@ -3,6 +3,8 @@
 ROOT_DIR="$(pwd)"
 GDB_INIT_PATH="$ROOT_DIR/gdbinit.py"
 
+gdb --version
+
 help_and_exit() {
     echo "Usage: ./tests.sh [-p|--pdb] [<test-name-filter>]"
     echo "  -p,  --pdb         enable pdb (Python debugger) post mortem debugger on failed tests"
