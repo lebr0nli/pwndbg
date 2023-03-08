@@ -140,8 +140,17 @@ class SimpleInstruction:
         self.condition = False
 
 
-@pwndbg.lib.memoize.reset_on_cont
 def get_one_instruction(address):
+    # TODO: This is a hack, we should have a better way to handle this directly in the memoize module
+    return __get_one_instruction(address, gdb.parameter("print demangle"))
+
+
+@pwndbg.lib.memoize.reset_on_cont
+def __get_one_instruction(address, print_demangle: bool):
+    """
+    The real logic for `get_one_instruction`, but with a memoize key that is affected by `print demangle`
+    Important: This function should not be called directly, use get_one_instruction instead.
+    """
     if pwndbg.gdblib.arch.current not in CapstoneArch:
         return SimpleInstruction(address)
     md = get_disassembler(address)

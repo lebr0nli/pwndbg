@@ -58,11 +58,20 @@ if "/usr/lib/debug" not in _get_debug_file_directory():
     _add_debug_file_directory("/usr/lib/debug")
 
 
-@pwndbg.lib.memoize.reset_on_objfile
 def get(address: int, gdb_only=False) -> str:
     """
     Retrieve the name for the symbol located at `address` - either from GDB or from IDA sync
     Passing `gdb_only=True`
+    """
+    # TODO: This is a hack, we should have a better way to handle this directly in the memoize module
+    return __get(address, gdb.parameter("print demangle"), gdb_only=gdb_only)
+
+
+@pwndbg.lib.memoize.reset_on_objfile
+def __get(address: int, print_demangle: bool, gdb_only=False) -> str:
+    """
+    The real logic for `get`, but with a memoize key that is affected by `print demangle`
+    Important: This function should not be called directly, use `get` instead
     """
     # Note: we do not return "" on `address < pwndbg.gdblib.memory.MMAP_MIN_ADDR`
     # because this may be used to find out the symbol name on PIE binaries that weren't started yet

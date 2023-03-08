@@ -74,7 +74,19 @@ def nearpc(pc=None, lines=None, emulate=False, repeat=False) -> List[str]:
     """
     Disassemble near a specified address.
     """
+    old_print_demangle = gdb.parameter("print demangle")
+    should_demangle = old_print_demangle and gdb.parameter("print asm-demangle")
+    gdb.execute(f"set print demangle {'on' if should_demangle else 'off'}")
+    result = __nearpc(pc, lines, emulate, repeat)
+    gdb.execute(f"set print demangle {'on' if old_print_demangle else 'off'}")
+    return result
 
+
+def __nearpc(pc=None, lines=None, emulate=False, repeat=False) -> List[str]:
+    """
+    The real logic for nearpc
+    Important: This function should not be called directly, use `nearpc` instead
+    """
     # Repeating nearpc (pressing enter) makes it show next addresses
     # (writing nearpc explicitly again will reset its state)
     if repeat:
