@@ -179,12 +179,12 @@ class module(ModuleType):
 
     @property
     @pwndbg.lib.memoize.reset_on_stop
-    def fsbase(self):
+    def fs_base(self):
         return self._fs_gs_helper("fs_base", ARCH_GET_FS)
 
     @property
     @pwndbg.lib.memoize.reset_on_stop
-    def gsbase(self):
+    def gs_base(self):
         return self._fs_gs_helper("gs_base", ARCH_GET_GS)
 
     @pwndbg.lib.memoize.reset_on_stop

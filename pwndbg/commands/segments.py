@@ -13,7 +13,7 @@ class segment(gdb.Function):
         self.name = name
 
     def invoke(self, arg=0):
-        result = getattr(pwndbg.gdblib.regs, self.name)
+        result = getattr(pwndbg.gdblib.regs, "fs_base" if self.name == "fsbase" else "gs_base")
         return result + arg
 
 
@@ -31,7 +31,7 @@ def fsbase() -> None:
     """
     Prints out the FS base address. See also $fsbase.
     """
-    print(hex(int(pwndbg.gdblib.regs.fsbase)))
+    print(hex(int(pwndbg.gdblib.regs.fs_base)))
 
 
 @pwndbg.commands.ArgparsedCommand(
@@ -43,4 +43,4 @@ def gsbase() -> None:
     """
     Prints out the GS base address. See also $gsbase.
     """
-    print(hex(int(pwndbg.gdblib.regs.gsbase)))
+    print(hex(int(pwndbg.gdblib.regs.gs_base)))

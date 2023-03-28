@@ -89,7 +89,7 @@ arch_to_SYSCALL = {
     U.UC_ARCH_PPC: [C.ppc_const.PPC_INS_SC],
 }
 
-blacklisted_regs = ["ip", "cs", "ds", "es", "fs", "gs", "ss", "fsbase", "gsbase"]
+blacklisted_regs = ["ip", "cs", "ds", "es", "ss"]
 
 """
 e = pwndbg.emu.emulator.Emulator()
