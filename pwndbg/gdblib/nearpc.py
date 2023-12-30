@@ -197,6 +197,13 @@ def nearpc(pc:int=None, lines:int=None, emulate=False, repeat=False) -> list[str
             if should_highlight_opcodes:
                 opcodes = C.highlight(opcodes)
                 should_highlight_opcodes = False
+        # Example:
+        #   
+        # Prefix = 
+        # Address_str = 
+        # Opcodes = 
+        # Symbol = 
+        # Asm = 
         line = " ".join(filter(None, (prefix, address_str, opcodes, symbol, asm)))
 
         # If there was a branch before this instruction which was not
