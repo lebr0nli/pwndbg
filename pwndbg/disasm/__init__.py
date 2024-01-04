@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import collections
 import re
+from typing import Any
 from typing import DefaultDict
 from typing import List
 from typing import Union
-from typing import Any 
 
 import capstone
 import gdb
@@ -23,7 +23,8 @@ import pwndbg.gdblib.symbol
 import pwndbg.ida
 import pwndbg.lib.cache
 from pwndbg.color import message
-from pwndbg.disasm.instruction import PwndbgInstruction, make_simple_instruction
+from pwndbg.disasm.instruction import PwndbgInstruction
+from pwndbg.disasm.instruction import make_simple_instruction
 
 try:
     import pwndbg.emu.emulator
@@ -71,13 +72,15 @@ VariableInstructionSizeMax = {
 debug = False
 
 # Dict of Address -> previous Address executed
-backward_cache: DefaultDict[int,int] = collections.defaultdict(lambda: None)
+backward_cache: DefaultDict[int, int] = collections.defaultdict(lambda: None)
 
 # This allows use to retain the annotation strings from previous instructions.
-# Don't use our 'cache_until' because it caches based on function arguments, but for disasm view, 
-# we don't want to fetch cached results in some cases. 
+# Don't use our 'cache_until' because it caches based on function arguments, but for disasm view,
+# we don't want to fetch cached results in some cases.
 # Dict of Address -> previously computed PwndbgInstruction
-computed_instruction_cache: DefaultDict[int, PwndbgInstruction] = collections.defaultdict(lambda: None)
+computed_instruction_cache: DefaultDict[int, PwndbgInstruction] = collections.defaultdict(
+    lambda: None
+)
 
 
 @pwndbg.lib.cache.cache_until("objfile")
@@ -151,20 +154,21 @@ def get_disassembler(pc):
 
 # If passed an emulator, this will pass it to the DisassemblyAssistant
 # which will single_step the emulator to determine the operand values before and after the instruction executes
-def get_one_instruction(address, emu: pwndbg.emu.emulator.Emulator=None, enhance=True, from_cache=False) -> PwndbgInstruction:
+def get_one_instruction(
+    address, emu: pwndbg.emu.emulator.Emulator = None, enhance=True, from_cache=False
+) -> PwndbgInstruction:
     if from_cache:
         cached = computed_instruction_cache[address]
         if cached is not None:
             return cached
-    
+
     if pwndbg.gdblib.arch.current not in CapstoneArch:
         return make_simple_instruction(address)
-    
+
     md = get_disassembler(address)
     size = VariableInstructionSizeMax.get(pwndbg.gdblib.arch.current, 4)
     data = pwndbg.gdblib.memory.read(address, size, partial=True)
     for ins in md.disasm(bytes(data), address, 1):
-
         pwn_ins = PwndbgInstruction(ins)
 
         if enhance:
@@ -175,9 +179,10 @@ def get_one_instruction(address, emu: pwndbg.emu.emulator.Emulator=None, enhance
         return pwn_ins
 
 
-
 # Return None on failure to fetch an instruction
-def one(address=None, emu: pwndbg.emu.emulator.Emulator=None, from_cache=False) -> PwndbgInstruction | None:
+def one(
+    address=None, emu: pwndbg.emu.emulator.Emulator = None, from_cache=False
+) -> PwndbgInstruction | None:
     if address is None:
         address = pwndbg.gdblib.regs.pc
 
@@ -191,6 +196,7 @@ def one(address=None, emu: pwndbg.emu.emulator.Emulator=None, from_cache=False) 
 
     return None
 
+
 # Get one instruction without enhancement
 def one_raw(address=None) -> PwndbgInstruction | None:
     if address is None:
@@ -200,8 +206,11 @@ def one_raw(address=None) -> PwndbgInstruction | None:
         return None
 
     return get_one_instruction(address, enhance=False)
-    
-def get(address, instructions=1, emu: pwndbg.emu.emulator.Emulator=None, from_cache=False) -> list[PwndbgInstruction]:
+
+
+def get(
+    address, instructions=1, emu: pwndbg.emu.emulator.Emulator = None, from_cache=False
+) -> list[PwndbgInstruction]:
     address = int(address)
 
     # Dont disassemble if there's no memory
@@ -318,7 +327,7 @@ def near(address, instructions=1, emulate=False, show_prev_insns=True) -> list[P
 
     insns.append(current)
     # print("END CACHE -------------------")
-    
+
     # At this point, we've already added everything *BEFORE* the requested address,
     # and the instruction at 'address'.
     # Now, continue forwards.
@@ -326,12 +335,10 @@ def near(address, instructions=1, emulate=False, show_prev_insns=True) -> list[P
     insn = current
     total_instructions = 1 + (2 * instructions)
 
-
     while insn and len(insns) < total_instructions:
-        
         # Address to disassemble & emulate
         target = insn.target
-        
+
         # Disable emulation if necessary
         # TODO: Consider if this should be configurable. CALL's are kinda nice to see sometimes
         if emulate and set(insn.groups) & DO_NOT_EMULATE:
@@ -351,11 +358,10 @@ def near(address, instructions=1, emulate=False, show_prev_insns=True) -> list[P
 
         # TODO: Get rid of this check
         if emu and None not in emu.last_single_step_result:
-            assert(emu.last_pc == target)
-        
+            assert emu.last_pc == target
+
         if insn:
             insns.append(insn)
-
 
     # Remove repeated instructions at the end of disassembly.
     # Always ensure we display the current and *next* instruction,
