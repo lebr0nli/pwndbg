@@ -1,16 +1,17 @@
+![repository-open-graph](https://github.com/pwndbg/pwndbg/assets/150354584/eaff07c7-4454-46cf-a6bc-96130225e87f)
 # pwndbg
 
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg?maxAge=2592000)](https://choosealicense.com/licenses/mit/)
 [![Unit tests](https://github.com/pwndbg/pwndbg/actions/workflows/tests.yml/badge.svg?branch=dev&event=push)](https://github.com/pwndbg/pwndbg/actions/workflows/tests.yml)
 [![Discord](https://img.shields.io/discord/843809097920413717?label=Discord&style=plastic)](https://discord.gg/x47DssnGwm)
 
-`pwndbg` (/poʊndbæg/) is a GDB plug-in that makes debugging with GDB suck less, with a focus on features needed by low-level software developers, hardware hackers, reverse-engineers and exploit developers.
+`pwndbg` (/paʊnˈdiˌbʌɡ/) is a GDB plug-in that makes debugging with GDB suck less, with a focus on features needed by low-level software developers, hardware hackers, reverse-engineers and exploit developers.
 
-It has a boatload of features, see [FEATURES.md](FEATURES.md).
+It has a boatload of features, see [FEATURES.md](FEATURES.md) and [CHEATSHEET](https://cdn.discordapp.com/attachments/1141077572587892857/1174249242882220114/CheatSheet.pdf) (feel free to print it!).
 
 ## Why?
 
-Vanilla GDB is terrible to use for reverse engineering and exploit development. Typing `x/g30x $esp` is not fun, and does not  confer much information.  The year is 2023 and GDB still lacks a real hexdump command!  GDB's syntax is arcane and difficult to approach.  Windbg users are completely lost when they occasionally need to bump into GDB.
+Vanilla GDB is terrible to use for reverse engineering and exploit development. Typing `x/g30x $esp` is not fun, and does not  confer much information.  The year is 2024 and GDB still lacks a real hexdump command!  GDB's syntax is arcane and difficult to approach.  Windbg users are completely lost when they occasionally need to bump into GDB.
 
 ## What?
 

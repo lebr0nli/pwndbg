@@ -8,16 +8,20 @@ system has /proc/$$/maps, which backs 'info proc mapping'.
 from __future__ import annotations
 
 import bisect
-from typing import Any
+from typing import List
+from typing import Set
+from typing import Tuple
 
 import gdb
 
+import pwndbg.auxv
 import pwndbg.color.message as M
 import pwndbg.gdblib.abi
 import pwndbg.gdblib.elf
 import pwndbg.gdblib.events
 import pwndbg.gdblib.file
 import pwndbg.gdblib.info
+import pwndbg.gdblib.kernel
 import pwndbg.gdblib.memory
 import pwndbg.gdblib.proc
 import pwndbg.gdblib.qemu
@@ -26,13 +30,14 @@ import pwndbg.gdblib.remote
 import pwndbg.gdblib.stack
 import pwndbg.gdblib.typeinfo
 import pwndbg.lib.cache
+import pwndbg.lib.memory
 
 # List of manually-explored pages which were discovered
 # by analyzing the stack or register context.
-explored_pages: list[pwndbg.lib.memory.Page] = []
+explored_pages: List[pwndbg.lib.memory.Page] = []
 
 # List of custom pages that can be managed manually by vmmap_* commands family
-custom_pages: list[pwndbg.lib.memory.Page] = []
+custom_pages: List[pwndbg.lib.memory.Page] = []
 
 
 kernel_vmmap_via_pt = pwndbg.gdblib.config.add_param(
@@ -79,7 +84,7 @@ inside_no_proc_maps_search = False
 
 
 @pwndbg.lib.cache.cache_until("start", "stop")
-def get() -> tuple[pwndbg.lib.memory.Page, ...]:
+def get() -> Tuple[pwndbg.lib.memory.Page, ...]:
     """
     Returns a tuple of `Page` objects representing the memory mappings of the
     target, sorted by virtual address ascending.
@@ -93,19 +98,20 @@ def get() -> tuple[pwndbg.lib.memory.Page, ...]:
 
     proc_maps = None
     if pwndbg.gdblib.qemu.is_qemu_usermode():
-        # On Qemu < 8.1 info proc maps are not supported. In that case we callback on proc_pid_maps
+        # On Qemu < 8.1 info proc maps are not supported. In that case we callback on proc_tid_maps
         proc_maps = info_proc_maps()
 
     if not proc_maps:
-        proc_maps = proc_pid_maps()
+        proc_maps = proc_tid_maps()
 
     # The `proc_maps` is usually a tuple of Page objects but it can also be:
-    #   None    - when /proc/$pid/maps does not exist/is not available
+    #   None    - when /proc/$tid/maps does not exist/is not available
     #   tuple() - when the process has no maps yet which happens only during its very early init
     #             (usually when we attach to a process)
     if proc_maps is not None:
         return proc_maps
-    pages = []
+
+    pages: List[pwndbg.lib.memory.Page] = []
     if pwndbg.gdblib.qemu.is_qemu_kernel() and pwndbg.gdblib.arch.current in (
         "i386",
         "x86-64",
@@ -146,7 +152,7 @@ def get() -> tuple[pwndbg.lib.memory.Page, ...]:
                 return (pwndbg.lib.memory.Page(0, pwndbg.gdblib.arch.ptrmask, 7, 0, "[qemu]"),)
             pages.extend(info_files())
 
-        pages.extend(pwndbg.gdblib.stack.stacks.values())
+        pages.extend(pwndbg.gdblib.stack.get().values())
         inside_no_proc_maps_search = False
 
     pages.extend(explored_pages)
@@ -156,7 +162,7 @@ def get() -> tuple[pwndbg.lib.memory.Page, ...]:
 
 
 @pwndbg.lib.cache.cache_until("stop")
-def find(address):
+def find(address: int | None) -> pwndbg.lib.memory.Page | None:
     if address is None:
         return None
 
@@ -170,7 +176,7 @@ def find(address):
 
 
 @pwndbg.gdblib.abi.LinuxOnly()
-def explore(address_maybe: int) -> Any | None:
+def explore(address_maybe: int) -> pwndbg.lib.memory.Page | None:
     """
     Given a potential address, check to see what permissions it has.
 
@@ -184,7 +190,7 @@ def explore(address_maybe: int) -> Any | None:
 
         Also assumes the entire contiguous section has the same permission.
     """
-    if proc_pid_maps():
+    if proc_tid_maps():
         return None
 
     address_maybe = pwndbg.lib.memory.page_align(address_maybe)
@@ -195,7 +201,7 @@ def explore(address_maybe: int) -> Any | None:
         return None
 
     flags |= 2 if pwndbg.gdblib.memory.poke(address_maybe) else 0
-    flags |= 1 if not pwndbg.gdblib.stack.nx else 0
+    flags |= 1 if not pwndbg.gdblib.stack.is_executable() else 0
 
     page = find_boundaries(address_maybe)
     page.objfile = "<explored>"
@@ -219,7 +225,7 @@ def clear_explored_pages() -> None:
         explored_pages.pop()
 
 
-def add_custom_page(page) -> None:
+def add_custom_page(page: pwndbg.lib.memory.Page) -> None:
     bisect.insort(custom_pages, page)
 
     # Reset all the cache
@@ -239,12 +245,12 @@ def clear_custom_page() -> None:
 
 
 @pwndbg.lib.cache.cache_until("objfile", "start")
-def coredump_maps():
+def coredump_maps() -> Tuple[pwndbg.lib.memory.Page, ...]:
     """
     Parses `info proc mappings` and `maintenance info sections`
     and tries to make sense out of the result :)
     """
-    pages = []
+    pages: List[pwndbg.lib.memory.Page] = []
 
     try:
         info_proc_mappings = pwndbg.gdblib.info.proc_mappings().splitlines()
@@ -345,9 +351,14 @@ def coredump_maps():
 
 
 @pwndbg.lib.cache.cache_until("start", "stop")
-def info_proc_maps():
+def info_proc_maps() -> Tuple[pwndbg.lib.memory.Page, ...]:
     """
     Parse the result of info proc mappings.
+
+    Note: this may return no pages due to a bug/behavior of GDB.
+    See https://sourceware.org/bugzilla/show_bug.cgi?id=31207
+    for more information.
+
     Returns:
         A tuple of pwndbg.lib.memory.Page objects or None if
         info proc mapping is not supported on the target.
@@ -359,7 +370,7 @@ def info_proc_maps():
         # On qemu user emulation, we may get: gdb.error: Not supported on this target.
         info_proc_mappings = []
 
-    pages = []
+    pages: List[pwndbg.lib.memory.Page] = []
     for line in info_proc_mappings:
         # We look for lines like:
         # ['0x555555555000', '0x555555556000', '0x1000', '0x1000', 'rw-p', '/home/user/a.out']
@@ -392,13 +403,14 @@ def info_proc_maps():
 
 
 @pwndbg.lib.cache.cache_until("start", "stop")
-def proc_pid_maps():
+def proc_tid_maps() -> Tuple[pwndbg.lib.memory.Page, ...] | None:
     """
-    Parse the contents of /proc/$PID/maps on the server.
+    Parse the contents of /proc/$TID/maps on the server.
+    (TID == Thread Identifier. We do not use PID since it may not be correct)
 
     Returns:
         A tuple of pwndbg.lib.memory.Page objects or None if
-        /proc/$pid/maps doesn't exist or when we debug a qemu-user target
+        /proc/$tid/maps doesn't exist or when we debug a qemu-user target
     """
 
     # If we debug remotely a qemu-user or qemu-system target,
@@ -406,7 +418,7 @@ def proc_pid_maps():
     if pwndbg.gdblib.qemu.is_qemu():
         return None
 
-    # Example /proc/$pid/maps
+    # Example /proc/$tid/maps
     # 7f95266fa000-7f95268b5000 r-xp 00000000 08:01 418404                     /lib/x86_64-linux-gnu/libc-2.19.so
     # 7f95268b5000-7f9526ab5000 ---p 001bb000 08:01 418404                     /lib/x86_64-linux-gnu/libc-2.19.so
     # 7f9526ab5000-7f9526ab9000 r--p 001bb000 08:01 418404                     /lib/x86_64-linux-gnu/libc-2.19.so
@@ -427,11 +439,11 @@ def proc_pid_maps():
     # 7fff3c1e8000-7fff3c1ea000 r-xp 00000000 00:00 0                          [vdso]
     # ffffffffff600000-ffffffffff601000 r-xp 00000000 00:00 0                  [vsyscall]
 
-    pid = pwndbg.gdblib.proc.pid
+    tid = pwndbg.gdblib.proc.tid
     locations = [
-        f"/proc/{pid}/maps",
-        f"/proc/{pid}/map",
-        f"/usr/compat/linux/proc/{pid}/maps",
+        f"/proc/{tid}/maps",
+        f"/proc/{tid}/map",
+        f"/usr/compat/linux/proc/{tid}/maps",
     ]
 
     for location in locations:
@@ -447,7 +459,7 @@ def proc_pid_maps():
     if data == "":
         return tuple()
 
-    pages = []
+    pages: List[pwndbg.lib.memory.Page] = []
     for line in data.splitlines():
         maps, perm, offset, dev, inode_objfile = line.split(maxsplit=4)
 
@@ -479,10 +491,10 @@ def proc_pid_maps():
 
 
 @pwndbg.lib.cache.cache_until("stop")
-def kernel_vmmap_via_page_tables():
+def kernel_vmmap_via_page_tables() -> Tuple[pwndbg.lib.memory.Page, ...]:
     import pt
 
-    retpages: list[pwndbg.lib.memory.Page] = []
+    retpages: List[pwndbg.lib.memory.Page] = []
 
     p = pt.PageTableDump()
     try:
@@ -518,7 +530,7 @@ def kernel_vmmap_via_page_tables():
 monitor_info_mem_not_warned = True
 
 
-def kernel_vmmap_via_monitor_info_mem():
+def kernel_vmmap_via_monitor_info_mem() -> Tuple[pwndbg.lib.memory.Page, ...]:
     """
     Returns Linux memory maps information by parsing `monitor info mem` output
     from QEMU kernel GDB stub.
@@ -565,7 +577,7 @@ def kernel_vmmap_via_monitor_info_mem():
     if len(lines) == 1 and lines[0] == "PG disabled":
         return tuple()
 
-    pages = []
+    pages: List[pwndbg.lib.memory.Page] = []
     for line in lines:
         dash_idx = line.index("-")
         space_idx = line.index(" ")
@@ -604,7 +616,7 @@ def kernel_vmmap_via_monitor_info_mem():
 
 
 @pwndbg.lib.cache.cache_until("stop")
-def info_sharedlibrary():
+def info_sharedlibrary() -> Tuple[pwndbg.lib.memory.Page, ...]:
     """
     Parses the output of `info sharedlibrary`.
 
@@ -634,7 +646,7 @@ def info_sharedlibrary():
     # 0x00007ffff76064a0  0x00007ffff774c113  Yes         /lib/x86_64-linux-gnu/libc.so.6
     # (*): Shared library is missing debugging information.
 
-    pages = []
+    pages: List[pwndbg.lib.memory.Page] = []
 
     for line in pwndbg.gdblib.info.sharedlibrary().splitlines():
         if not line.startswith("0x"):
@@ -650,7 +662,7 @@ def info_sharedlibrary():
 
 
 @pwndbg.lib.cache.cache_until("stop")
-def info_files():
+def info_files() -> Tuple[pwndbg.lib.memory.Page, ...]:
     # Example of `info files` output:
     # Symbols from "/bin/bash".
     # Unix child process:
@@ -668,8 +680,8 @@ def info_files():
     # 0x00007ffff7dda1f0 - 0x00007ffff7dda2ac is .hash in /lib64/ld-linux-x86-64.so.2
     # 0x00007ffff7dda2b0 - 0x00007ffff7dda38c is .gnu.hash in /lib64/ld-linux-x86-64.so.2
 
-    seen_files = set()
-    pages = []
+    seen_files: Set[str] = set()
+    pages: List[pwndbg.lib.memory.Page] = []
     main_exe = ""
 
     for line in pwndbg.gdblib.info.files().splitlines():
@@ -708,7 +720,7 @@ def info_files():
 
 
 @pwndbg.lib.cache.cache_until("exit")
-def info_auxv(skip_exe: bool = False):
+def info_auxv(skip_exe: bool = False) -> Tuple[pwndbg.lib.memory.Page, ...]:
     """
     Extracts the name of the executable from the output of the command
     "info auxv". Note that if the executable path is a symlink,
@@ -725,7 +737,7 @@ def info_auxv(skip_exe: bool = False):
     if not auxv:
         return tuple()
 
-    pages = []
+    pages: List[pwndbg.lib.memory.Page] = []
     exe_name = auxv.AT_EXECFN or "main.exe"
     entry = auxv.AT_ENTRY
     base = auxv.AT_BASE
@@ -750,7 +762,7 @@ def info_auxv(skip_exe: bool = False):
     return tuple(sorted(pages))
 
 
-def find_boundaries(addr, name: str = "", min: int = 0):
+def find_boundaries(addr: int, name: str = "", min: int = 0) -> pwndbg.lib.memory.Page:
     """
     Given a single address, find all contiguous pages
     which are mapped.
@@ -763,7 +775,7 @@ def find_boundaries(addr, name: str = "", min: int = 0):
     return pwndbg.lib.memory.Page(start, end - start, 4, 0, name)
 
 
-def check_aslr():
+def check_aslr() -> Tuple[bool | None, str]:
     """
     Detects the ASLR status. Returns True, False or None.
 
@@ -778,13 +790,13 @@ def check_aslr():
         data = pwndbg.gdblib.file.get("/proc/sys/kernel/randomize_va_space")
         if b"0" in data:
             return False, "kernel.randomize_va_space == 0"
-    except Exception as e:
+    except Exception:
         print("Could not check ASLR: can't read randomize_va_space")
 
     # Check the personality of the process
     if pwndbg.gdblib.proc.alive:
         try:
-            data = pwndbg.gdblib.file.get("/proc/%i/personality" % pwndbg.gdblib.proc.pid)
+            data = pwndbg.gdblib.file.get("/proc/%i/personality" % pwndbg.gdblib.proc.tid)
             personality = int(data, 16)
             return (personality & 0x40000 == 0), "read status from process' personality"
         except Exception:
