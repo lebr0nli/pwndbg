@@ -25,6 +25,7 @@ import pwndbg.lib.cache
 from pwndbg.color import message
 from pwndbg.disasm.instruction import PwndbgInstruction
 from pwndbg.disasm.instruction import make_simple_instruction
+from pwndbg.disasm.arch import DEBUG_ENHANCEMENT
 
 try:
     import pwndbg.emu.emulator
@@ -68,8 +69,6 @@ VariableInstructionSizeMax = {
     "rv64": 22,
 }
 
-
-debug = False
 
 # Dict of Address -> previous Address executed
 backward_cache: DefaultDict[int, int] = collections.defaultdict(lambda: None)
@@ -155,7 +154,7 @@ def get_disassembler(pc):
 # If passed an emulator, this will pass it to the DisassemblyAssistant
 # which will single_step the emulator to determine the operand values before and after the instruction executes
 def get_one_instruction(
-    address, emu: pwndbg.emu.emulator.Emulator = None, enhance=True, from_cache=False
+    address, emu: pwndbg.emu.emulator.Emulator = None, enhance=True, from_cache=False, put_cache=False
 ) -> PwndbgInstruction:
     if from_cache:
         cached = computed_instruction_cache[address]
@@ -174,7 +173,8 @@ def get_one_instruction(
         if enhance:
             pwndbg.disasm.arch.DisassemblyAssistant.enhance(pwn_ins, emu)
 
-        computed_instruction_cache[address] = pwn_ins
+        if put_cache:
+            computed_instruction_cache[address] = pwn_ins
 
         return pwn_ins
 
@@ -184,7 +184,7 @@ def get_one_instruction(
 
 # Return None on failure to fetch an instruction
 def one(
-    address=None, emu: pwndbg.emu.emulator.Emulator = None, from_cache=False
+    address=None, emu: pwndbg.emu.emulator.Emulator = None, enhance=True, from_cache=False, put_cache=False
 ) -> PwndbgInstruction | None:
     if address is None:
         address = pwndbg.gdblib.regs.pc
@@ -193,7 +193,7 @@ def one(
         return None
 
     # A for loop in case this returns an empty list
-    for insn in get(address, 1, emu, from_cache=from_cache):
+    for insn in get(address, 1, emu, enhance=enhance, from_cache=from_cache, put_cache=put_cache):
         backward_cache[insn.next] = insn.address
         return insn
 
@@ -212,7 +212,7 @@ def one_raw(address=None) -> PwndbgInstruction | None:
 
 
 def get(
-    address, instructions=1, emu: pwndbg.emu.emulator.Emulator = None, from_cache=False
+    address, instructions=1, emu: pwndbg.emu.emulator.Emulator = None, enhance=True, from_cache=False, put_cache=False
 ) -> list[PwndbgInstruction]:
     address = int(address)
 
@@ -222,7 +222,7 @@ def get(
 
     retval: list[PwndbgInstruction] = []
     for _ in range(instructions):
-        i = get_one_instruction(address, emu, from_cache=from_cache)
+        i = get_one_instruction(address, emu, enhance=enhance, from_cache=from_cache, put_cache=put_cache)
         if i is None:
             break
         address = i.next
@@ -306,9 +306,9 @@ def near(address, instructions=1, emulate=False, show_prev_insns=True) -> list[P
         emu = pwndbg.emu.emulator.Emulator()
 
     # Start at the current instruction using emulating if available.
-    current = one(address, emu)
+    current = one(address, emu, put_cache=True)
 
-    if debug:
+    if DEBUG_ENHANCEMENT:
         if None in emu.last_single_step_result:
             print("Emulator failed at first step")
 
@@ -318,18 +318,22 @@ def near(address, instructions=1, emulate=False, show_prev_insns=True) -> list[P
     insns: list[PwndbgInstruction] = []
 
     # Get previously executed instructions from the cache.
-    # print("CACHE -------------------")
+    if DEBUG_ENHANCEMENT:
+        print("CACHE START -------------------")
     if show_prev_insns:
         cached = backward_cache[current.address]
         insn = one(cached, from_cache=True) if cached else None
         while insn is not None and len(insns) < instructions:
+            if DEBUG_ENHANCEMENT:
+                print(f"Got instruction from cache, addr={cached:#x}")
             insns.append(insn)
             cached = backward_cache[insn.address]
             insn = one(cached, from_cache=True) if cached else None
         insns.reverse()
 
     insns.append(current)
-    # print("END CACHE -------------------")
+    if DEBUG_ENHANCEMENT:
+        print("END CACHE -------------------")
 
     # At this point, we've already added everything *BEFORE* the requested address,
     # and the instruction at 'address'.
@@ -341,11 +345,14 @@ def near(address, instructions=1, emulate=False, show_prev_insns=True) -> list[P
     while insn and len(insns) < total_instructions:
         # Address to disassemble & emulate
         target = insn.next
-
+        
         # Disable emulation if necessary
         if emulate and set(insn.groups) & DO_NOT_EMULATE:
             emulate = False
             emu = None
+
+            if DEBUG_ENHANCEMENT:
+                print("Turned off enhancement, not emulating certain type of instruction")
 
         # If using emulation and it's still enabled, use it to determine the next instruction executed
         if emu:
@@ -356,7 +363,7 @@ def near(address, instructions=1, emulate=False, show_prev_insns=True) -> list[P
                 # If it failed, was not able to run the instruction
                 emu = None
 
-        insn = one(target, emu)
+        insn = one(target, emu, put_cache=True)
 
         # TODO: Get rid of this check
         if emu and None not in emu.last_single_step_result:
