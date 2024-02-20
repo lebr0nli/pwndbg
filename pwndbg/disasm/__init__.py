@@ -6,8 +6,8 @@ address +/- a few instructions.
 from __future__ import annotations
 
 import collections
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from typing import Any
 from typing import DefaultDict
 from typing import List
@@ -247,9 +247,6 @@ def get(
     return retval
 
 
-
-
-
 def can_run_first_emulate() -> bool:
     """
     Disable the emulate config variable if we don't have enough memory to use it
@@ -286,10 +283,11 @@ def can_run_first_emulate() -> bool:
 
 first_time_emulate = True
 
+
 # Return (list of PwndbgInstructions, index in list where instruction.address = passed in address)
 def near(
     address, instructions=1, emulate=False, show_prev_insns=True, use_cache=False
-) -> tuple[list[PwndbgInstruction],int]:
+) -> tuple[list[PwndbgInstruction], int]:
     """
     Disasms instructions near given `address`. Passing `emulate` makes use of
     unicorn engine to emulate instructions to predict branches that will be taken.
@@ -317,7 +315,7 @@ def near(
                 return ([], -1)
             else:
                 raise
-            
+
     # Start at the current instruction using emulating if available.
     current = one(address, emu, put_cache=True)
 
@@ -360,7 +358,6 @@ def near(
     total_instructions = 1 + (2 * instructions)
 
     while insn and len(insns) < total_instructions:
-
         # Emulation may have failed or been disabled in the last call to one()
         if emu:
             if not emu.last_step_succeeded or not emu.valid:
@@ -384,4 +381,4 @@ def near(
     while insns and len(insns) > 2 and insns[-3].address == insns[-2].address == insns[-1].address:
         del insns[-1]
 
-    return (insns,index_of_current_instruction)
+    return (insns, index_of_current_instruction)
