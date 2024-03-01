@@ -53,9 +53,9 @@ def find_address_with_pthread_self() -> int:
 def find_address_with_register() -> int:
     """Get the address of TLS with register."""
     if pwndbg.gdblib.arch.current == "x86-64":
-        return int(pwndbg.gdblib.regs.fsbase)
+        return int(pwndbg.gdblib.regs.fs_base)
     elif pwndbg.gdblib.arch.current == "i386":
-        return int(pwndbg.gdblib.regs.gsbase)
+        return int(pwndbg.gdblib.regs.gs_base)
     elif pwndbg.gdblib.arch.current == "aarch64":
         return int(pwndbg.gdblib.regs.TPIDR_EL0)
     # TODO: is it possible that we can get the address of TLS with register on arm?

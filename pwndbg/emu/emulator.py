@@ -166,7 +166,7 @@ arch_to_SYSCALL = {
 }
 
 # https://github.com/unicorn-engine/unicorn/issues/550
-blacklisted_regs = ["ip", "cs", "ds", "es", "fs", "gs", "ss", "fsbase", "gsbase"]
+blacklisted_regs = ["ip", "cs", "ds", "es", "fs", "gs", "ss"]
 
 """
 e = pwndbg.emu.emulator.Emulator()

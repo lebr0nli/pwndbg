@@ -162,12 +162,12 @@ class module(ModuleType):
 
     @property
     @pwndbg.lib.cache.cache_until("stop")
-    def fsbase(self):
+    def fs_base(self):
         return self._fs_gs_helper("fs_base", ARCH_GET_FS)
 
     @property
     @pwndbg.lib.cache.cache_until("stop")
-    def gsbase(self):
+    def gs_base(self):
         return self._fs_gs_helper("gs_base", ARCH_GET_GS)
 
     @pwndbg.lib.cache.cache_until("stop")
