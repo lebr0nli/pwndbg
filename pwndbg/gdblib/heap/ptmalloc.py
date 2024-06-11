@@ -21,7 +21,6 @@ from typing import List
 from typing import OrderedDict as OrderedDictType
 from typing import Set
 from typing import Tuple
-from typing import Type
 from typing import TypeVar
 
 import gdb
@@ -1060,32 +1059,39 @@ class GlibcMemoryAllocator(pwndbg.gdblib.heap.heap.MemoryAllocator, Generic[TheT
         raise NotImplementedError()
 
     @property
-    def heap_info(self) -> TheType | None:
-        raise NotImplementedError()
+    @pwndbg.lib.cache.cache_until("objfile")
+    def heap_info(self) -> gdb.Type | None:
+        return pwndbg.gdblib.typeinfo.load("heap_info")
 
     @property
-    def malloc_chunk(self) -> TheType | None:
-        raise NotImplementedError()
+    @pwndbg.lib.cache.cache_until("objfile")
+    def malloc_chunk(self) -> gdb.Type | None:
+        return pwndbg.gdblib.typeinfo.load("struct malloc_chunk")
 
     @property
-    def malloc_state(self) -> TheType | None:
-        raise NotImplementedError()
+    @pwndbg.lib.cache.cache_until("objfile")
+    def malloc_state(self) -> gdb.Type | None:
+        return pwndbg.gdblib.typeinfo.load("struct malloc_state")
 
     @property
-    def tcache_perthread_struct(self) -> TheType | None:
-        raise NotImplementedError()
+    @pwndbg.lib.cache.cache_until("objfile")
+    def tcache_perthread_struct(self) -> gdb.Type | None:
+        return pwndbg.gdblib.typeinfo.load("struct tcache_perthread_struct")
 
     @property
-    def tcache_entry(self) -> TheType | None:
-        raise NotImplementedError()
+    @pwndbg.lib.cache.cache_until("objfile")
+    def tcache_entry(self) -> gdb.Type | None:
+        return pwndbg.gdblib.typeinfo.load("struct tcache_entry")
 
     @property
-    def mallinfo(self) -> TheType | None:
-        raise NotImplementedError()
+    @pwndbg.lib.cache.cache_until("objfile")
+    def mallinfo(self) -> gdb.Type | None:
+        return pwndbg.gdblib.typeinfo.load("struct mallinfo")
 
     @property
-    def malloc_par(self) -> TheType | None:
-        raise NotImplementedError()
+    @pwndbg.lib.cache.cache_until("objfile")
+    def malloc_par(self) -> gdb.Type | None:
+        return pwndbg.gdblib.typeinfo.load("struct malloc_par")
 
     @property
     @pwndbg.lib.cache.cache_until("objfile")
@@ -1175,11 +1181,19 @@ class GlibcMemoryAllocator(pwndbg.gdblib.heap.heap.MemoryAllocator, Generic[TheT
     def tcache_next_offset(self) -> int:
         return self.tcache_entry.keys().index("next") * pwndbg.gdblib.arch.ptrsize
 
-    def get_heap(self, addr: int) -> TheValue | None:
-        raise NotImplementedError()
+    def get_heap(self, addr: int) -> gdb.Value | None:
+        """Find & read the heap_info struct belonging to the chunk at 'addr'."""
+        if self.heap_info is None:
+            return None
+        return pwndbg.gdblib.memory.get_typed_pointer_value(self.heap_info, heap_for_ptr(addr))
 
-    def get_tcache(self, tcache_addr: int | None = None) -> TheValue | None:
-        raise NotImplementedError()
+    def get_tcache(self, tcache_addr: int | gdb.Value | None = None) -> gdb.Value | None:
+        if tcache_addr is None:
+            return self.thread_cache
+
+        return pwndbg.gdblib.memory.get_typed_pointer_value(
+            self.tcache_perthread_struct, tcache_addr
+        )
 
     def get_sbrk_heap_region(self) -> pwndbg.lib.memory.Page | None:
         raise NotImplementedError()
@@ -1551,55 +1565,6 @@ class DebugSymsHeap(GlibcMemoryAllocator[gdb.Type, gdb.Value]):
             self._global_max_fast = pwndbg.gdblib.memory.u(self._global_max_fast_addr)
 
         return self._global_max_fast
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def heap_info(self) -> gdb.Type | None:
-        return pwndbg.gdblib.typeinfo.load("heap_info")
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def malloc_chunk(self) -> gdb.Type | None:
-        return pwndbg.gdblib.typeinfo.load("struct malloc_chunk")
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def malloc_state(self) -> gdb.Type | None:
-        return pwndbg.gdblib.typeinfo.load("struct malloc_state")
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def tcache_perthread_struct(self) -> gdb.Type | None:
-        return pwndbg.gdblib.typeinfo.load("struct tcache_perthread_struct")
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def tcache_entry(self) -> gdb.Type | None:
-        return pwndbg.gdblib.typeinfo.load("struct tcache_entry")
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def mallinfo(self) -> gdb.Type | None:
-        return pwndbg.gdblib.typeinfo.load("struct mallinfo")
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def malloc_par(self) -> gdb.Type | None:
-        return pwndbg.gdblib.typeinfo.load("struct malloc_par")
-
-    def get_heap(self, addr: int) -> gdb.Value | None:
-        """Find & read the heap_info struct belonging to the chunk at 'addr'."""
-        if self.heap_info is None:
-            return None
-        return pwndbg.gdblib.memory.get_typed_pointer_value(self.heap_info, heap_for_ptr(addr))
-
-    def get_tcache(self, tcache_addr: int | gdb.Value | None = None) -> gdb.Value | None:
-        if tcache_addr is None:
-            return self.thread_cache
-
-        return pwndbg.gdblib.memory.get_typed_pointer_value(
-            self.tcache_perthread_struct, tcache_addr
-        )
 
     def get_sbrk_heap_region(self) -> pwndbg.lib.memory.Page | None:
         """Return a Page object representing the sbrk heap region.
@@ -2073,70 +2038,6 @@ class HeuristicHeap(
             )
         )
         return default
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def heap_info(self) -> Type["pwndbg.gdblib.heap.structs.HeapInfo"] | None:
-        if not self.struct_module:
-            return None
-        return self.struct_module.HeapInfo
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def malloc_chunk(self) -> Type["pwndbg.gdblib.heap.structs.MallocChunk"] | None:
-        if not self.struct_module:
-            return None
-        return self.struct_module.MallocChunk
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def malloc_state(self) -> Type["pwndbg.gdblib.heap.structs.MallocState"] | None:
-        if not self.struct_module:
-            return None
-        return self.struct_module.MallocState
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def tcache_perthread_struct(
-        self,
-    ) -> Type["pwndbg.gdblib.heap.structs.TcachePerthreadStruct"] | None:
-        if not self.struct_module:
-            return None
-        return self.struct_module.TcachePerthreadStruct
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def tcache_entry(self) -> Type["pwndbg.gdblib.heap.structs.TcacheEntry"] | None:
-        if not self.struct_module:
-            return None
-        return self.struct_module.TcacheEntry
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def mallinfo(self) -> Type["pwndbg.gdblib.heap.structs.CStruct2GDB"] | None:
-        # TODO/FIXME: Currently, we don't need to create a new class for `struct mallinfo` because we never use it.
-        raise NotImplementedError("`struct mallinfo` is not implemented yet.")
-
-    @property
-    @pwndbg.lib.cache.cache_until("objfile")
-    def malloc_par(self) -> Type["pwndbg.gdblib.heap.structs.MallocPar"] | None:
-        if not self.struct_module:
-            return None
-        return self.struct_module.MallocPar
-
-    def get_heap(self, addr: int) -> "pwndbg.gdblib.heap.structs.HeapInfo" | None:
-        """Find & read the heap_info struct belonging to the chunk at 'addr'."""
-        hi = self.heap_info
-        return hi(heap_for_ptr(addr))
-
-    def get_tcache(
-        self, tcache_addr: int | None = None
-    ) -> "pwndbg.gdblib.heap.structs.TcachePerthreadStruct" | None:
-        if tcache_addr is None:
-            return self.thread_cache
-
-        tps = self.tcache_perthread_struct
-        return tps(tcache_addr)
 
     def get_sbrk_heap_region(self) -> pwndbg.lib.memory.Page:
         """Return a Page object representing the sbrk heap region.
