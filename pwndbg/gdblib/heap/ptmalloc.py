@@ -247,12 +247,9 @@ class Chunk:
     def __init__(self, addr: int, heap: Heap | None = None, arena: Arena | None = None) -> None:
         assert isinstance(pwndbg.gdblib.heap.current, GlibcMemoryAllocator)
         assert pwndbg.gdblib.heap.current.malloc_chunk is not None
-        if isinstance(pwndbg.gdblib.heap.current.malloc_chunk, gdb.Type):
-            self._gdbValue = pwndbg.gdblib.memory.get_typed_pointer_value(
-                pwndbg.gdblib.heap.current.malloc_chunk, addr
-            )
-        else:
-            self._gdbValue = pwndbg.gdblib.heap.current.malloc_chunk(addr)
+        self._gdbValue = pwndbg.gdblib.memory.get_typed_pointer_value(
+            pwndbg.gdblib.heap.current.malloc_chunk, addr
+        )
         self.address = int(self._gdbValue.address)
         self._prev_size: int | None = None
         self._size: int | None = None
@@ -573,12 +570,9 @@ class Arena:
     def __init__(self, addr: int) -> None:
         assert isinstance(pwndbg.gdblib.heap.current, GlibcMemoryAllocator)
         assert pwndbg.gdblib.heap.current.malloc_state is not None
-        if isinstance(pwndbg.gdblib.heap.current.malloc_state, gdb.Type):
-            self._gdbValue = pwndbg.gdblib.memory.get_typed_pointer_value(
-                pwndbg.gdblib.heap.current.malloc_state, addr
-            )
-        else:
-            self._gdbValue = pwndbg.gdblib.heap.current.malloc_state(addr)
+        self._gdbValue = pwndbg.gdblib.memory.get_typed_pointer_value(
+            pwndbg.gdblib.heap.current.malloc_state, addr
+        )
 
         self.address = int(self._gdbValue.address)
         self._is_main_arena: bool | None = None
@@ -1599,6 +1593,21 @@ class SymbolUnresolvableError(Exception):
         self.symbol = symbol
 
 
+def set_field_of_struct(
+    struct_type: gdb.Type, struct: bytearray, field_name: str, value: int
+) -> None:
+    """
+    Helper function for create default main_arena and mp_ struct for heuristic
+    """
+    field = struct_type.get(field_name)
+    if field is None:
+        return
+    field_offset = field.bitpos // 8
+    # we don't consider negative values here because we don't need them yet
+    field_value = value.to_bytes(field.type.sizeof, pwndbg.gdblib.arch.endian)
+    struct[field_offset : field_offset + len(field_value)] = field_value
+
+
 class HeuristicHeap(
     GlibcMemoryAllocator[
         typing.Type["pwndbg.gdblib.heap.structs.CStruct2GDB"],
@@ -1625,6 +1634,25 @@ class HeuristicHeap(
     def can_be_resolved(self) -> bool:
         return self.struct_module is not None
 
+    def _create_default_main_arena(self, guess: int = 0) -> bytes:
+        """
+        Create the default main_arena and return it as bytes
+
+        https://github.com/bminor/glibc/blob/glibc-2.39/malloc/malloc.c#L1906-L1911
+
+        static struct malloc_state main_arena =
+        {
+          .mutex = _LIBC_LOCK_INITIALIZER,
+          .next = &main_arena,
+          .attached_threads = 1
+        };
+        """
+        expected = bytearray(self.malloc_state.sizeof)
+        set_field_of_struct(self.malloc_state, expected, "attached_threads", 1)
+        set_field_of_struct(self.malloc_state, expected, "next", guess)
+
+        return bytes(expected)
+
     @property
     def main_arena(self) -> Arena | None:
         main_arena_via_config = int(str(pwndbg.gdblib.config.main_arena), 0)
@@ -1644,16 +1672,8 @@ class HeuristicHeap(
             if data_section and data_section_address:
                 data_section_offset, size, data_section_data = data_section
                 # Try to find the default main_arena struct in the .data section
-                # https://github.com/bminor/glibc/blob/glibc-2.37/malloc/malloc.c#L1902-L1907
-                # static struct malloc_state main_arena =
-                # {
-                #   .mutex = _LIBC_LOCK_INITIALIZER,
-                #   .next = &main_arena,
-                #   .attached_threads = 1
-                # };
-                expected = self.malloc_state._c_struct()
-                expected.attached_threads = 1
-                next_field_offset = self.malloc_state.get_field_offset("next")
+                expected = self._create_default_main_arena()
+                next_field_offset = self.malloc_state.get("next").bitpos // 8
                 malloc_state_size = self.malloc_state.sizeof
 
                 # Since RELR relocations might also have .rela.dyn section, we check it first
@@ -1706,11 +1726,11 @@ class HeuristicHeap(
                             ]
                             # Note: Although RELA relocations have r_addend, some compiler will still put the addend in the location of r_offset, so we still need to check both cases
                             found = False
-                            expected.next = addend
-                            found |= bytes(expected) == tmp
+                            expected = self._create_default_main_arena(addend)
+                            found |= expected == tmp
                             if not found:
                                 expected.next = 0
-                                found |= bytes(expected) == tmp
+                                found |= expected == tmp
                             if found:
                                 # This might be a false positive, but it is very unlikely, so should be fine :)
                                 self._main_arena_addr = (
@@ -1722,8 +1742,8 @@ class HeuristicHeap(
                 if not self._main_arena_addr:
                     # Try to find the default main_arena struct in the .data section
                     for i in range(0, size - self.malloc_state.sizeof, pwndbg.gdblib.arch.ptrsize):
-                        expected.next = data_section_offset + i
-                        if bytes(expected) == data_section_data[i : i + malloc_state_size]:
+                        expected = self._create_default_main_arena(data_section_offset + i)
+                        if expected == data_section_data[i : i + malloc_state_size]:
                             # This also might be a false positive, but it is very unlikely too, so should also be fine :)
                             self._main_arena_addr = data_section_address + i
                             break
@@ -1914,12 +1934,16 @@ class HeuristicHeap(
             "tcache"
         ) or pwndbg.gdblib.symbol.address("tcache")
         if thread_cache_via_config:
-            self._thread_cache = tps(thread_cache_via_config)
+            self._thread_cache = pwndbg.gdblib.memory.get_typed_pointer_value(
+                tps, thread_cache_via_config
+            )
             return self._thread_cache
         elif thread_cache_via_symbol:
             thread_cache_struct_addr = pwndbg.gdblib.memory.pvoid(thread_cache_via_symbol)
             if thread_cache_struct_addr:
-                self._thread_cache = tps(int(thread_cache_struct_addr))
+                self._thread_cache = pwndbg.gdblib.memory.get_typed_pointer_value(
+                    tps, thread_cache_struct_addr
+                )
                 return self._thread_cache
 
         # return the value of tcache if we have it cached
@@ -1963,7 +1987,9 @@ class HeuristicHeap(
                                 f"Found possible tcache at {message.hint(hex(address))} with value: {message.hint(hex(value))}\n"
                             )
                         )
-                        self._thread_cache = tps(value)
+                        self._thread_cache = pwndbg.gdblib.memory.get_typed_pointer_value(
+                            tps, value
+                        )
                         self._thread_caches[gdb.selected_thread().global_num] = self._thread_cache
                         return self._thread_cache
 
@@ -1975,10 +2001,63 @@ class HeuristicHeap(
             )
 
         # TODO: The result might be wrong if the arena is being shared by multiple thread
-        self._thread_cache = tps(arena.heaps[0].start + pwndbg.gdblib.arch.ptrsize * 2)
+        self._thread_cache = pwndbg.gdblib.memory.get_typed_pointer_value(
+            tps, arena.heaps[0].start + pwndbg.gdblib.arch.ptrsize * 2
+        )
         self._thread_caches[gdb.selected_thread().global_num] = self._thread_cache
 
         return self._thread_cache
+
+    @pwndbg.lib.cache.cache_until("objfile")
+    def _create_default_mp(self) -> bytes:
+        """
+        Create the default mp_ and return it as bytes
+
+        https://github.com/bminor/glibc/blob/glibc-2.39/malloc/malloc.c#L1915-L1930
+
+        static struct malloc_par mp_ =
+        {
+            .top_pad = DEFAULT_TOP_PAD,
+            .n_mmaps_max = DEFAULT_MMAP_MAX,
+            .mmap_threshold = DEFAULT_MMAP_THRESHOLD,
+            .trim_threshold = DEFAULT_TRIM_THRESHOLD,
+            #define NARENAS_FROM_NCORES(n) ((n) * (sizeof (long) == 4 ? 2 : 8))
+            .arena_test = NARENAS_FROM_NCORES (1)
+        #if USE_TCACHE
+            ,
+            .tcache_count = TCACHE_FILL_COUNT,
+            .tcache_bins = TCACHE_MAX_BINS,
+            .tcache_max_bytes = tidx2usize (TCACHE_MAX_BINS-1),
+            .tcache_unsorted_limit = 0 /* No limit.  */
+        #endif
+        };
+        """
+        DEFAULT_TOP_PAD = 131072
+        DEFAULT_MMAP_MAX = 65536
+        DEFAULT_MMAP_THRESHOLD = 128 * 1024
+        DEFAULT_TRIM_THRESHOLD = 128 * 1024
+        DEFAULT_PAGE_SIZE = 4096
+        TCACHE_FILL_COUNT = 7
+
+        default_mp = bytearray(self.malloc_par.sizeof)
+        set_field_of_struct(self.malloc_par, default_mp, "top_pad", DEFAULT_TOP_PAD)
+        set_field_of_struct(self.malloc_par, default_mp, "n_mmaps_max", DEFAULT_MMAP_MAX)
+        set_field_of_struct(self.malloc_par, default_mp, "mmap_threshold", DEFAULT_MMAP_THRESHOLD)
+        set_field_of_struct(self.malloc_par, default_mp, "trim_threshold", DEFAULT_TRIM_THRESHOLD)
+        set_field_of_struct(
+            self.malloc_par, default_mp, "arena_test", 2 if pwndbg.gdblib.arch.ptrsize == 4 else 8
+        )
+        set_field_of_struct(self.malloc_par, default_mp, "tcache_count", TCACHE_FILL_COUNT)
+        set_field_of_struct(self.malloc_par, default_mp, "tcache_bins", TCACHE_MAX_BINS)
+        set_field_of_struct(
+            self.malloc_par,
+            default_mp,
+            "tcache_max_bytes",
+            (TCACHE_MAX_BINS - 1) * self.malloc_alignment + self.minsize - self.size_sz,
+        )
+        set_field_of_struct(self.malloc_par, default_mp, "pagesize", DEFAULT_PAGE_SIZE)
+
+        return bytes(default_mp)
 
     @property
     def mp(self) -> "pwndbg.gdblib.heap.structs.CStruct2GDB":
@@ -1996,17 +2075,17 @@ class HeuristicHeap(
             else:
                 section = pwndbg.glibc.dump_elf_data_section()
                 section_address = pwndbg.glibc.get_section_address_by_name(".data")
+            default_mp = self._create_default_mp()
             if section and section_address:
                 _, _, data = section
 
                 # try to find the default mp_ struct in the .data section
-                found = data.find(bytes(self.struct_module.DEFAULT_MP_))
+                found = data.find(default_mp)
                 if found != -1:
                     self._mp_addr = section_address + found
 
         if pwndbg.gdblib.memory.is_readable_address(self._mp_addr):
-            mps = self.malloc_par
-            self._mp = mps(self._mp_addr)
+            self._mp = pwndbg.gdblib.memory.get_typed_pointer_value(self.malloc_par, self._mp_addr)
             return self._mp
 
         raise SymbolUnresolvableError("mp_")
@@ -2055,9 +2134,9 @@ class HeuristicHeap(
                 pass
 
         if self._mp_addr:
-            if self.get_region(self.mp.get_field_address("sbrk_base")) and self.get_region(
-                self.mp["sbrk_base"]
-            ):
+            if self.get_region(
+                self._mp_addr + self.malloc_par["sbrk_base"].bitpos // 8
+            ) and self.get_region(int(self.mp["sbrk_base"])):
                 assert isinstance(pwndbg.gdblib.heap.current, GlibcMemoryAllocator)
                 sbrk_base = pwndbg.lib.memory.align_up(
                     int(self.mp["sbrk_base"]), pwndbg.gdblib.heap.current.size_sz * 2

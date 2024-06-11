@@ -32,7 +32,6 @@ from pwndbg.gdblib.heap.ptmalloc import Arena
 from pwndbg.gdblib.heap.ptmalloc import Bins
 from pwndbg.gdblib.heap.ptmalloc import BinType
 from pwndbg.gdblib.heap.ptmalloc import Chunk
-from pwndbg.gdblib.heap.ptmalloc import DebugSymsHeap
 from pwndbg.gdblib.heap.ptmalloc import GlibcMemoryAllocator
 from pwndbg.gdblib.heap.ptmalloc import Heap
 
@@ -48,12 +47,9 @@ def read_chunk(addr: int) -> Dict[str, int]:
         "mchunk_size": "size",
         "mchunk_prev_size": "prev_size",
     }
-    if isinstance(pwndbg.gdblib.heap.current, DebugSymsHeap):
-        val = pwndbg.gdblib.memory.get_typed_pointer_value(
-            pwndbg.gdblib.heap.current.malloc_chunk, addr
-        )
-    else:
-        val = pwndbg.gdblib.heap.current.malloc_chunk(addr)
+    val = pwndbg.gdblib.memory.get_typed_pointer_value(
+        pwndbg.gdblib.heap.current.malloc_chunk, addr
+    )
     value_keys: List[str] = val.type.keys()
     return {renames.get(key, key): int(val[key]) for key in value_keys}
 
