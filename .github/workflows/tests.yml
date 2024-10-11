@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - dev
+      - sort-coredump-pages-test
     paths:
       - '**'
       - '!mkdocs.yml'
