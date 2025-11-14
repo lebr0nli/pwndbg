@@ -33,12 +33,12 @@ for cmd in wget tar xz uname mktemp rm mkdir ln grep; do
 done
 
 if [ -n "$missing" ]; then
-    echoerr "Error: The following required commands are missing: $missing"
+    echoerr "Error: The following required commands are missing: ${YELLOW}$missing"
     echoerr "Please install the missing commands and try again."
     exit 1
 fi
 
-VERSION="2025.04.13"
+VERSION="2025.10.20"
 TYPE=""
 ROOTLESS=false
 
@@ -137,8 +137,12 @@ else
             ${*}
         }
     else
-        echoinfo "Requesting 'sudo' privileges. You may be prompted for your password..."
-        sudo -v
+        # Before prompting, check if the user can run sudo without password,
+        # or if the credentials are already cached
+        if ! sudo -n true 2> /dev/null; then
+            echoinfo "Requesting 'sudo' privileges. You may be prompted for your password..."
+            sudo -v
+        fi
     fi
 fi
 
@@ -150,10 +154,10 @@ case "$OS" in
             aarch64) FILE="${BINARY_NAME}_${VERSION}_arm64-portable.tar.xz" ;;
             armv7*) FILE="${BINARY_NAME}_${VERSION}_armv7-portable.tar.xz" ;;
             riscv64) FILE="${BINARY_NAME}_${VERSION}_riscv64-portable.tar.xz" ;;
-            powerpc64) FILE="${BINARY_NAME}_${VERSION}_powerpc64-portable.tar.xz" ;;
-            powerpc64le) FILE="${BINARY_NAME}_${VERSION}_powerpc64le-portable.tar.xz" ;;
+            ppc64) FILE="${BINARY_NAME}_${VERSION}_powerpc64-portable.tar.xz" ;;
+            ppc64le) FILE="${BINARY_NAME}_${VERSION}_powerpc64le-portable.tar.xz" ;;
             s390x) FILE="${BINARY_NAME}_${VERSION}_s390x-portable.tar.xz" ;;
-                # loongarch64) FILE="${BINARY_NAME}_${VERSION}_loongarch64-portable.tar.xz" ;;
+            loongarch64) FILE="${BINARY_NAME}_${VERSION}_loongarch64-portable.tar.xz" ;;
             *)
                 echoerr "Unsupported architecture: $ARCH"
                 exit 1
@@ -194,7 +198,15 @@ URL="https://github.com/pwndbg/pwndbg/releases/download/${VERSION}/${FILE}"
 trap "rm -rf $TEMP_DIR" EXIT
 
 echoinfo "Downloading... ${URL}"
-wget -q --show-progress "$URL" -O "$TEMP_DIR/$FILE" || {
+
+# 'wget' on BusyBox don't support progress options
+if wget --help 2>&1 | grep -qi 'busybox'; then
+    WGET_CMD="wget -q"
+else
+    WGET_CMD="wget -q --show-progress"
+fi
+
+$WGET_CMD "$URL" -O "$TEMP_DIR/$FILE" || {
     echoerr "Problem with downloading the file. Please check your internet connection or try again."
     exit 1
 }
